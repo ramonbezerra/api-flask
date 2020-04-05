@@ -1,9 +1,10 @@
 from app import app, db
 from flask import jsonify, request, g
 from app.models import User
-from flask_httpauth import HTTPBasicAuth
+from flask_httpauth import HTTPBasicAuth, HTTPTokenAuth
 
 basic_auth = HTTPBasicAuth()
+token_auth = HTTPTokenAuth()
 
 @basic_auth.verify_password
 def verify_password(username, password):
@@ -19,12 +20,24 @@ def verify_password(username, password):
     g.user = user
     return True
 
+@token_auth.verify_token
+def verify_token(token):
+    user_id = User.verify_auth_token(token)
+    g.user = User.query.filter_by(id = user_id).one() if user_id else None
+    return g.user is not None
+
 @basic_auth.error_handler
 def error():
     return jsonify({'error': 'unauthorized'}), 401
 
-@app.route('/user', methods=['GET'])
+@app.route('/token', methods=['POST'])
 @basic_auth.login_required
+def get_auth_token():
+    token = g.user.generate_auth_token()
+    return jsonify({'token': token.decode('ascii')})
+
+@app.route('/user', methods=['GET'])
+@token_auth.login_required
 def get_all_users():
     users = User.query.all()
     output = []
