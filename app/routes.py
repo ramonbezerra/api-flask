@@ -1,8 +1,30 @@
 from app import app, db
-from flask import jsonify, request
+from flask import jsonify, request, g
 from app.models import User
+from flask_httpauth import HTTPBasicAuth
+
+basic_auth = HTTPBasicAuth()
+
+@basic_auth.verify_password
+def verify_password(username, password):
+    auth = request.authorization
+
+    if auth is None or auth.username is None or auth.password is None:
+        error()
+    else:
+        user = User.query.filter_by(username = username).first()
+        if not user or not user.check_password(password):
+            return False
+    
+    g.user = user
+    return True
+
+@basic_auth.error_handler
+def error():
+    return jsonify({'error': 'unauthorized'}), 401
 
 @app.route('/user', methods=['GET'])
+@basic_auth.login_required
 def get_all_users():
     users = User.query.all()
     output = []
