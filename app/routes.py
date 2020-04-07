@@ -1,5 +1,8 @@
 from app import app, db
-from flask import jsonify, request, g
+from flask import jsonify, request, g,render_template
+from oauth2client.client import flow_from_clientsecrets, FlowExchangeError
+import httplib2
+import requests
 from app.models import User
 from flask_httpauth import HTTPBasicAuth, HTTPTokenAuth
 
@@ -36,6 +39,42 @@ def get_auth_token():
     token = g.user.generate_auth_token()
     return jsonify({'token': token.decode('ascii')})
 
+@app.route('/oauth/<provider>', methods=['POST'])
+def login_oauth(provider):
+    if provider == 'google':
+        auth_code = request.data.decode("utf-8")
+    
+        try:
+            oauth_flow = flow_from_clientsecrets('client_secret.json', scope='')
+            oauth_flow.redirect_uri = 'postmessage'
+            credentials = oauth_flow.step2_exchange(auth_code)
+        except FlowExchangeError:
+            return jsonify({'Failed to upgrade the authorization code.'}), 401
+    
+        userinfo_url = "https://www.googleapis.com/oauth2/v1/userinfo"
+        params = {'access_token': credentials.access_token, 'alt':'json'}
+        answer = requests.get(userinfo_url, params=params)
+        
+        data = answer.json()
+        name = data['name']
+        picture = data['picture']
+        email = data['email']
+        
+        user_by_username = User.query.filter_by(username=name).first()
+        user_by_email = User.query.filter_by(email=email).first()
+        if user_by_username is not None or user_by_email is not None:
+            return jsonify({'error':'user already exists'}), 200
+        new_user = User(username=name, email=email)
+        new_user.set_password('password')
+        db.session.add(new_user)
+        db.session.commit()
+        
+        token = new_user.generate_auth_token()
+        
+        return jsonify({'token': token.decode('ascii')})
+    else:
+        return 'Unrecognized Provider'
+
 @app.route('/user', methods=['GET'])
 @token_auth.login_required
 def get_all_users():
@@ -71,3 +110,6 @@ def create_user():
 
     return jsonify({'message': 'registered successfully'})
 
+@app.route('/clientOAuth')
+def start():
+    return render_template('clientOAuth.html')
